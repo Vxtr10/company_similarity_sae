@@ -1,3 +1,5 @@
+! pip install datasets
+! pip install optuna
 from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer
 import pandas as pd
@@ -174,9 +176,10 @@ scaler = StandardScaler()
 
 all_years = sorted(pairs_df['year'].unique())
 n_total_years = len(all_years)
-split_B_end = int(0.75 * n_total_years)
+start_year_train = 0
+end_year_train = 17 # 17 for 2013
 
-train_mask = pairs_df['year'].isin(all_years[:split_B_end])
+train_mask = pairs_df['year'].isin(all_years[start_year_train:end_year_train])
 scaler.fit(pairs_df.loc[train_mask, ['cosine_distance']])
 
 pairs_df['cosine_distance_scaled'] = scaler.transform(pairs_df[['cosine_distance']])
@@ -292,21 +295,23 @@ def optimise_cluster_parameters(TO_ANALYSE_DF, pairs_df, use_holdout=True):
 
     # Define splits for proper out-of-sample evaluation
     if use_holdout:
-        # Split: 25% (A), 50% (B), 25% (C held out)
+        # Split: 50% (A), 25% (B), 25% (D held out)
         split_A_end = int(0.25 * n_total_years)
-        split_B_end = int(0.75 * n_total_years)
+        split_B_end = int(0.50 * n_total_years)
+        split_C_end = int(0.75 * n_total_years)
 
         years_A = all_years[:split_A_end]              # First 25%
-        years_B = all_years[split_A_end:split_B_end]   # Middle 50%
-        years_C = all_years[split_B_end:]              # Last 25% (HELD OUT)
+        years_B = all_years[split_A_end:split_B_end]   # Middle 25%
+        years_C = all_years[split_B_end:split_C_end]
+        years_D = all_years[split_C_end:]              # Last 25% (HELD OUT)
 
         # Only use A+B for optimization
-        optimization_years = years_A + years_B
+        optimization_years = years_A + years_B + years_C 
 
         print(f"\n=== Data Split for Out-of-Sample Evaluation ===")
         print(f"Period A (25%): {years_A[0]}-{years_A[-1]} ({len(years_A)} years)")
         print(f"Period B (50%): {years_B[0]}-{years_B[-1]} ({len(years_B)} years)")
-        print(f"Period C (25%, HELD OUT): {years_C[0]}-{years_C[-1]} ({len(years_C)} years)")
+        print(f"Period D (25%, HELD OUT): {years_D[0]}-{years_D[-1]} ({len(years_D)} years)")
         print(f"Optimization will use only periods A and B: {optimization_years[0]}-{optimization_years[-1]}")
         print("=" * 50 + "\n")
 
@@ -319,16 +324,17 @@ def optimise_cluster_parameters(TO_ANALYSE_DF, pairs_df, use_holdout=True):
         years_A = None
         years_B = None
         years_C = None
+        years_D = None
 
     def objective(trial):
         # Suggest values for hyperparameters
-        threshold = trial.suggest_float('threshold', -6.5, -1, step=0.1)
+        threshold = trial.suggest_float('threshold', -5, -2.1, step=0.1)
         linkage_method = 'single'
 
         if use_holdout:
             # Simple evaluation on Period A and Period B separately
 
-            # Evaluate on Period A (25% of total data)
+            # Evaluate on Period A
             period_A_df = optimization_df[optimization_df['year'].isin(years_A)]
             cluster_df_A = perform_clustering_per_year(
                 TO_ANALYSE_DF=period_A_df,
@@ -343,7 +349,7 @@ def optimise_cluster_parameters(TO_ANALYSE_DF, pairs_df, use_holdout=True):
             )
             score_A = avg_corr_A['PeriodAAvgCorrelation'].mean()
 
-            # Evaluate on Period B (50% of total data)
+            # Evaluate on Period B
             period_B_df = optimization_df[optimization_df['year'].isin(years_B)]
             cluster_df_B = perform_clustering_per_year(
                 TO_ANALYSE_DF=period_B_df,
@@ -358,15 +364,30 @@ def optimise_cluster_parameters(TO_ANALYSE_DF, pairs_df, use_holdout=True):
             )
             score_B = avg_corr_B['PeriodBAvgCorrelation'].mean()
 
+            # Evaluate on Period C
+            period_C_df = optimization_df[optimization_df['year'].isin(years_C)]
+            cluster_df_C = perform_clustering_per_year(
+                TO_ANALYSE_DF=period_C_df,
+                years_to_cluster=years_C,
+                threshold=threshold,
+                linkage_method=linkage_method
+            )
+            avg_corr_C = calculate_avg_correlation(
+                TO_ANALYSE_DF=period_C_df,
+                cluster_df=cluster_df_C,
+                cluster_type="PeriodC"
+            )
+            score_C = avg_corr_C['PeriodCAvgCorrelation'].mean()
+
             # Average across both periods (as stated in paper)
-            overall_avg_corr = (score_A + score_B) / 2
+            overall_avg_corr = score_A + score_B + score_C 
 
             # Handle NaN cases
             if np.isnan(overall_avg_corr):
                 overall_avg_corr = -np.inf
 
             # Log the parameters and the resulting correlation
-            logging.info(f"Threshold: {threshold}, Score A: {score_A:.4f}, Score B: {score_B:.4f}, Average: {overall_avg_corr:.4f}")
+            logging.info(f"Threshold: {threshold}, Score A: {score_A:.4f}, Score B: {score_B:.4f}, Score C: {score_C:.4f}, Average: {overall_avg_corr:.4f}")
 
         else:
             # Original behavior - evaluate on all optimization data
@@ -394,7 +415,7 @@ def optimise_cluster_parameters(TO_ANALYSE_DF, pairs_df, use_holdout=True):
     study = optuna.create_study(direction='maximize', sampler=optuna.samplers.TPESampler(seed=1))
 
     # Optimize the study with temporal cross-validation
-    study.optimize(objective, n_trials=150, timeout=28800, callbacks=[save_study_callback])
+    study.optimize(objective, n_trials=150, timeout=3600, callbacks=[save_study_callback])
 
     # Retrieve the best parameters
     best_params = study.best_params
