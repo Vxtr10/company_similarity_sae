@@ -1,3 +1,6 @@
+! pip install datasets
+! pip install optuna
+! pip install kaleido
 import plotly.graph_objects as go
 import kaleido
 from datasets import Dataset, DatasetDict
@@ -294,9 +297,11 @@ scaler = StandardScaler()
 
 all_years = sorted(pairs_df['year'].unique())
 n_total_years = len(all_years)
-split_B_end = int(0.75 * n_total_years)
+start_year_train = 0
+end_year_train = 17 # 17 for 2013
 
-train_mask = pairs_df['year'].isin(all_years[:split_B_end])
+
+train_mask = pairs_df['year'].isin(all_years[start_year_train:end_year_train])
 scaler.fit(pairs_df.loc[train_mask, ['cosine_distance']])
 
 pairs_df['cosine_distance_scaled'] = scaler.transform(pairs_df[['cosine_distance']])
@@ -467,10 +472,10 @@ fig.add_annotation(
 
 os.makedirs("./images/", exist_ok=True)
 
+fig.show()
+
 # Export high-resolution image
 fig.write_image(f'./images/CD_PALM_final_plot_resized.png', scale=1, width=1920, height=1080)
 
 
-# Show the figure
-fig.show()
 
