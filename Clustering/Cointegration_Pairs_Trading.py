@@ -43,7 +43,6 @@ TPG_Cluster_df = pd.read_pickle(f"./data/Final Results/year_cluster_dfPaLM-gecko
 TPG_Cluster_df["year"] = TPG_Cluster_df["year"].astype(int)
 TPG_Cluster_df = TPG_Cluster_df[~TPG_Cluster_df['year'].isin([1993, 1994, 1995])].reset_index(drop=True)
 
-
 SBERT_Cluster_df = pd.read_pickle(f"./data/Final Results/year_cluster_dfSBERT.pkl")
 SBERT_Cluster_df["year"] = SBERT_Cluster_df["year"].astype(int)
 SBERT_Cluster_df = SBERT_Cluster_df[~SBERT_Cluster_df['year'].isin([1993, 1994, 1995])].reset_index(drop=True)
@@ -51,8 +50,6 @@ SBERT_Cluster_df = SBERT_Cluster_df[~SBERT_Cluster_df['year'].isin([1993, 1994, 
 BERT_Cluster_df = pd.read_pickle(f"./data/Final Results/year_cluster_dfBERT.pkl")
 BERT_Cluster_df["year"] = BERT_Cluster_df["year"].astype(int)
 BERT_Cluster_df = BERT_Cluster_df[~BERT_Cluster_df['year'].isin([1993, 1994, 1995])].reset_index(drop=True)
-
-
 
 year_SIC_cluster_df = pd.read_pickle("./data/cointegration/year_SIC_cluster_mapping.pkl")
 year_Industry_cluster_df = pd.read_pickle("./data/cointegration/year_Industry_cluster_mapping.pkl")
@@ -880,6 +877,7 @@ clusters_to_process = ["CD-Cluster"]
 
 clusters_to_process = []
 
+
 os.makedirs("./data/cointegration/Traded Clusters/", exist_ok=True)
 for cluster_type, cluster_df in cluster_dfs.items():
     print("\n", cluster_type, "\n")
@@ -979,10 +977,12 @@ for cluster_type, cluster_df in cluster_dfs.items():
     try:
         number_of_cointegrated_pairs = len(cointegrated_pairs_df)
         number_of_total_pairs_in_this_cluster = 0
+        # For the selection year only, sum nC2 over all clusters
         for cluster in cluster_df[cluster_df["year"].isin([year])]["clusters"]:
             for key, values in cluster.items():
-                if len(values) > 1:
-                    number_of_total_pairs_in_this_cluster += 1
+                n = len(values)
+                if n > 1:
+                    number_of_total_pairs_in_this_cluster += n * (n - 1) // 2
     except Exception:
         pass
 
